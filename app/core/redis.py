@@ -3,16 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
-from typing import TYPE_CHECKING
+from typing import Any
 
 import redis.asyncio as aioredis
 
 from app.core.config import settings
 
-if TYPE_CHECKING:
-    RedisClient = aioredis.Redis[str]
-else:
-    RedisClient = aioredis.Redis
+RedisClient = Any
 
 _redis_client: RedisClient | None = None
 

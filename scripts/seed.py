@@ -51,7 +51,7 @@ async def seed_tenant(name: str, plan: str) -> None:
         print("⚠️  SAVE THIS KEY! It is never stored and cannot be retrieved again.")
         print("\nExample curl query command:")
         print(
-            f'curl -X POST http://localhost:8000/api/v1/query \\\n'
+            f"curl -X POST http://localhost:8000/api/v1/query \\\n"
             f'  -H "Authorization: Bearer {raw_key}" \\\n'
             f'  -H "Content-Type: application/json" \\\n'
             f'  -d \'{{"question": "What is this document about?", "top_k": 3}}\'\n'

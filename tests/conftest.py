@@ -280,7 +280,7 @@ async def async_client(
     async def override_get_db() -> AsyncGenerator[InMemorySession, None]:
         yield in_memory_db
 
-    async def override_get_redis() -> AsyncGenerator[aioredis.Redis[str], None]:
+    async def override_get_redis() -> AsyncGenerator[RedisClient, None]:
         yield redis_client
 
     app.dependency_overrides[get_db] = override_get_db

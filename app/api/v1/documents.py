@@ -87,9 +87,7 @@ async def list_documents(
 ) -> DocumentListResponse:
     """Retrieve all documents owned by the authenticated tenant."""
     stmt = (
-        select(Document)
-        .where(Document.tenant_id == tenant.id)
-        .order_by(Document.created_at.desc())
+        select(Document).where(Document.tenant_id == tenant.id).order_by(Document.created_at.desc())
     )
     result = await db.execute(stmt)
     documents = result.scalars().all()

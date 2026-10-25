@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-from typing import cast
-
-import redis.asyncio as aioredis
+from typing import Any, cast
 
 from app.core.logging import get_logger
 
@@ -34,7 +32,7 @@ class RateLimitExceeded(Exception):
 
 
 async def check_rate_limit(
-    redis: aioredis.Redis[str],
+    redis: Any,
     tenant_id: str,
     plan: str,
 ) -> tuple[int, int]:
@@ -51,7 +49,7 @@ async def check_rate_limit(
     now_ms = int(time.time() * 1000)
 
     # eval returns a list of integers [allowed, current_count, limit]
-    eval_result = await redis.eval(  # type: ignore[no-untyped-call]
+    eval_result = await redis.eval(
         _LUA_SCRIPT,
         1,
         key,

@@ -21,9 +21,7 @@ class Document(Base):
     """Document uploaded by a tenant."""
 
     __tablename__ = "documents"
-    __table_args__ = (
-        UniqueConstraint("tenant_id", "file_hash", name="uq_tenant_file_hash"),
-    )
+    __table_args__ = (UniqueConstraint("tenant_id", "file_hash", name="uq_tenant_file_hash"),)
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
