@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Lint, Migrate & Test
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: rag_user
+          POSTGRES_PASSWORD: rag_pass
+          POSTGRES_DB: ragdb
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql+asyncpg://rag_user:rag_pass@localhost:5432/ragdb
+      REDIS_URL: redis://localhost:6379/0
+      SECRET_KEY: test-secret-key-only
+      GEMINI_API_KEY: mock-api-key-for-ci
+      GEMINI_EMBEDDING_MODEL: text-embedding-004
+      GEMINI_CHAT_MODEL: gemini-2.0-flash
+      EMBEDDING_DIM: 768
+      VECTOR_BACKEND: pgvector
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Ruff Linter
+        run: ruff check app tests scripts
+
+      - name: Run Black Formatter Check
+        run: black --check app tests scripts
+
+      - name: Run Mypy Type Checker
+        run: mypy app tests scripts
+
+      - name: Run Alembic Database Migrations
+        run: alembic upgrade head
+
+      - name: Run Pytest Test Suite
+        run: pytest -v
