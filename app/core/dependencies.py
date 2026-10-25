@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import redis.asyncio as aioredis
 from fastapi import Depends, HTTPException, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
@@ -10,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.logging import get_logger, tenant_id_context_var
-from app.core.redis import get_redis
+from app.core.redis import RedisClient, get_redis
 from app.core.security import hash_api_key
 from app.db.models.api_key import ApiKey
 from app.db.models.tenant import Tenant
@@ -85,7 +84,7 @@ async def get_current_tenant(
 
 async def rate_limited_tenant(
     tenant: Tenant = Depends(get_current_tenant),
-    redis: aioredis.Redis[str] = Depends(get_redis),
+    redis: RedisClient = Depends(get_redis),
 ) -> Tenant:
     """Enforce distributed sliding-window rate limit after tenant authentication.
 

@@ -4,12 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
-import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, Response, status
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.redis import get_redis
+from app.core.redis import RedisClient, get_redis
 from app.db.session import get_db
 
 router = APIRouter(tags=["health"])
@@ -32,7 +31,7 @@ async def health_liveness() -> dict[str, str]:
 async def health_readiness(
     response: Response,
     db: AsyncSession = Depends(get_db),
-    redis: aioredis.Redis[str] = Depends(get_redis),
+    redis: RedisClient = Depends(get_redis),
 ) -> dict[str, Any]:
     """Readiness probe checking PostgreSQL and Redis connectivity."""
     db_ok = False

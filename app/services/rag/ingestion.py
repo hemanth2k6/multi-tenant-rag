@@ -4,14 +4,15 @@ from __future__ import annotations
 
 import hashlib
 import uuid
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
 from app.db.models.document import Document
+from app.services.rag import embedder
 from app.services.rag.chunker import chunk_extracted_pages
-from app.services.rag.embedder import embed_chunks
 from app.services.rag.extractor import extract_pdf_pages
 from app.services.vector_store.base import ChunkRecord, VectorStore
 
@@ -74,6 +75,7 @@ async def ingest_document(
         filename=filename,
         file_hash=file_hash,
         status="processing",
+        created_at=datetime.now(UTC),
     )
     db.add(doc)
     await db.commit()
@@ -92,7 +94,7 @@ async def ingest_document(
 
         # Step 6: Gemini Embeddings
         chunk_texts = [c.content for c in chunks]
-        embeddings = await embed_chunks(chunk_texts, task_type="retrieval_document")
+        embeddings = await embedder.embed_chunks(chunk_texts, task_type="retrieval_document")
 
         if len(embeddings) != len(chunks):
             raise RuntimeError(

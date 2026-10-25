@@ -3,15 +3,21 @@
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
+from typing import TYPE_CHECKING
 
 import redis.asyncio as aioredis
 
 from app.core.config import settings
 
-_redis_client: aioredis.Redis[str] | None = None
+if TYPE_CHECKING:
+    RedisClient = aioredis.Redis[str]
+else:
+    RedisClient = aioredis.Redis
+
+_redis_client: RedisClient | None = None
 
 
-def get_redis_client() -> aioredis.Redis[str]:
+def get_redis_client() -> RedisClient:
     """Return or initialize the singleton Redis async client."""
     global _redis_client
     if _redis_client is None:
@@ -31,7 +37,7 @@ async def close_redis() -> None:
         _redis_client = None
 
 
-async def get_redis() -> AsyncGenerator[aioredis.Redis[str], None]:
+async def get_redis() -> AsyncGenerator[RedisClient, None]:
     """FastAPI dependency yielding the async Redis client."""
     client = get_redis_client()
     yield client

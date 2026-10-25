@@ -28,9 +28,15 @@ plugins = ["pydantic.mypy"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
 addopts = "-q"
 python_files = ["test_*.py"]
+filterwarnings = [
+    "ignore::DeprecationWarning:redis.*",
+    "ignore::DeprecationWarning:PyPDF2.*",
+    "ignore::pytest.PytestDeprecationWarning",
+]
 
 [tool.pydantic-mypy]
 init_forbid_extra = true

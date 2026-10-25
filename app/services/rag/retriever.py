@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 
 from app.core.logging import get_logger
-from app.services.rag.embedder import embed_chunks, generate_answer
+from app.services.rag import embedder
 from app.services.vector_store.base import VectorSearchResult, VectorStore
 
 logger = get_logger(__name__)
@@ -29,7 +29,7 @@ async def retrieve_and_answer(
         tuple of (synthesized_answer, filtered_sources)
     """
     # 1. Embed query vector with task_type='retrieval_query'
-    query_embeddings = await embed_chunks([question], task_type="retrieval_query")
+    query_embeddings = await embedder.embed_chunks([question], task_type="retrieval_query")
     if not query_embeddings:
         raise RuntimeError("Failed to compute embedding vector for query")
 
@@ -69,6 +69,6 @@ async def retrieve_and_answer(
 
     # 4. Generate answer using Gemini chat model with retrieved context
     contexts = [res.content for res in isolated_results]
-    answer = await generate_answer(question=question, contexts=contexts)
+    answer = await embedder.generate_answer(question=question, contexts=contexts)
 
     return answer, isolated_results
