@@ -1,6 +1,10 @@
 """Application configuration using Pydantic Settings."""
 
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import (
+    BaseSettings,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+)
 
 
 class Settings(BaseSettings):
@@ -11,6 +15,18 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
     )
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        """Ensure .env file overrides ambient environment variables."""
+        return init_settings, dotenv_settings, env_settings, file_secret_settings
 
     DATABASE_URL: str = "postgresql+asyncpg://rag_user:rag_pass@localhost:5432/ragdb"
     REDIS_URL: str = "redis://localhost:6379/0"
