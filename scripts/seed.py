@@ -6,6 +6,10 @@ import argparse
 import asyncio
 import sys
 import uuid
+from pathlib import Path
+
+# Ensure repo root is on sys.path for direct script execution
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.core.security import generate_api_key
 from app.db.models.api_key import ApiKey
