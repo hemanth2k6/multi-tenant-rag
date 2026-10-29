@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+from typing import Any
+
 import google.generativeai as genai
 
 from app.core.config import settings
@@ -16,7 +19,7 @@ def _ensure_genai_configured() -> None:
     """Configure the Google Generative AI client once with API key."""
     global _configured
     if not _configured and settings.GEMINI_API_KEY:
-        genai.configure(api_key=settings.GEMINI_API_KEY)
+        genai.configure(api_key=settings.GEMINI_API_KEY, transport="rest")
         _configured = True
 
 
@@ -40,11 +43,14 @@ async def embed_chunks(
 
     model_name = f"models/{settings.GEMINI_EMBEDDING_MODEL}"
     try:
-        response = await genai.embed_content_async(
-            model=model_name,
-            content=texts,
-            task_type=task_type,
-        )
+        kwargs: dict[str, Any] = {
+            "model": model_name,
+            "content": texts,
+            "task_type": task_type,
+        }
+        if settings.EMBEDDING_DIM:
+            kwargs["output_dimensionality"] = settings.EMBEDDING_DIM
+        response = await asyncio.to_thread(genai.embed_content, **kwargs)
     except Exception as exc:
         logger.error(f"Gemini embed_content_async failed: {exc}")
         raise
@@ -80,7 +86,7 @@ async def generate_answer(question: str, contexts: list[str]) -> str:
 
     model = genai.GenerativeModel(settings.GEMINI_CHAT_MODEL)
     try:
-        response = await model.generate_content_async(prompt)
+        response = await asyncio.to_thread(model.generate_content, prompt)
         text_content = str(response.text) if hasattr(response, "text") else ""
         return text_content.strip()
     except Exception as exc:
