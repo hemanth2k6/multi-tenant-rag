@@ -263,7 +263,10 @@ async def redis_client() -> AsyncGenerator[RedisClient, None]:
     keys = await client.keys("rl:*")
     if keys:
         await client.delete(*keys)
-    await client.close()
+    if hasattr(client, "aclose"):
+        await client.aclose()
+    else:
+        await client.close()
 
 
 @pytest.fixture
