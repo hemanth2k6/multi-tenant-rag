@@ -1,7 +1,10 @@
-.PHONY: up down migrate seed run test lint format check
+.PHONY: up up-db down migrate seed run test lint format check
 
 up:
 	docker compose up -d
+
+up-db:
+	docker compose up -d postgres redis
 
 down:
 	docker compose down -v

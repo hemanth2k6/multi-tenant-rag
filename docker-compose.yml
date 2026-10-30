@@ -39,13 +39,12 @@ services:
     restart: unless-stopped
     ports:
       - "8000:8000"
+    env_file:
+      - .env
     environment:
       DATABASE_URL: postgresql+asyncpg://rag_user:rag_pass@postgres:5432/ragdb
       REDIS_URL: redis://redis:6379/0
       SECRET_KEY: change-me-in-production
-      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
-      GEMINI_EMBEDDING_MODEL: ${GEMINI_EMBEDDING_MODEL:-text-embedding-004}
-      GEMINI_CHAT_MODEL: ${GEMINI_CHAT_MODEL:-gemini-2.0-flash}
       EMBEDDING_DIM: 768
       VECTOR_BACKEND: pgvector
       DEBUG: "false"
