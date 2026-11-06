@@ -52,4 +52,5 @@ class Chunk(Base):
 
     # Relationships
     tenant: Mapped[Tenant] = relationship("Tenant", back_populates="chunks")
+    user: Mapped[Tenant] = relationship("Tenant", back_populates="chunks", viewonly=True)
     document: Mapped[Document] = relationship("Document", back_populates="chunks")

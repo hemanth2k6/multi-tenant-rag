@@ -9,25 +9,24 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.exceptions import (
+    CorruptedPDFError,
+    DuplicateDocumentError,
+    EmbeddingServiceError,
+    EmbeddingTimeoutError,
+    EmptyDocumentError,
+)
 from app.core.logging import get_logger
 from app.db.models.document import Document
 from app.services.rag import embedder
-from app.services.rag.chunker import chunk_extracted_pages
-from app.services.rag.extractor import extract_pdf_pages
+from app.services.rag.chunker import chunk_extracted_pages_async
+from app.services.rag.extractor import extract_pdf_pages_async
 from app.services.vector_store.base import ChunkRecord, VectorStore
 
 logger = get_logger(__name__)
 
-
-class DuplicateDocumentError(Exception):
-    """Raised when a tenant uploads an identical document."""
-
-    def __init__(self, filename: str, file_hash: str) -> None:
-        super().__init__(
-            f"Document '{filename}' with hash '{file_hash[:12]}...' already exists for this tenant."
-        )
-        self.filename = filename
-        self.file_hash = file_hash
+# Re-export DuplicateDocumentError for backwards compatibility
+__all__ = ["DuplicateDocumentError", "ingest_document"]
 
 
 async def ingest_document(
@@ -37,21 +36,21 @@ async def ingest_document(
     db: AsyncSession,
     vector_store: VectorStore,
 ) -> Document:
-    """Execute the end-to-end ingestion pipeline with strict tenant isolation.
+    """Execute end-to-end ingestion pipeline with strict tenant isolation and error safety.
 
     Pipeline Steps:
     1. Compute SHA-256 hash for tenant-scoped deduplication.
-    2. Check for duplicate upload (HTTP 409).
+    2. Check for duplicate upload within this tenant (raises DuplicateDocumentError).
     3. Persist Document entity with 'processing' status.
-    4. Extract text pages via PyPDF2.
-    5. Generate token-bounded chunks (512 max tokens, 128 overlap).
-    6. Request 768-dim embeddings from Gemini (task_type='retrieval_document').
-    7. Upsert chunks into vector store scoped to tenant_id.
-    8. Update Document status to 'ready'.
+    4. Offload PDF text extraction to worker thread (handles corrupted/empty PDFs).
+    5. Offload token-bounded chunking (512 max tokens, 128 overlap).
+    6. Request 768-dim embeddings from Gemini with timeout and retry protection.
+    7. Upsert chunks into vector store strictly scoped to tenant_id.
+    8. Update Document status to 'ready' and commit.
     """
     file_hash = hashlib.sha256(file_bytes).hexdigest()
 
-    # Step 1 & 2: Deduplication check scoped to tenant
+    # Step 1 & 2: Deduplication check scoped strictly to the authenticated tenant
     stmt = select(Document).where(
         Document.tenant_id == tenant_id,
         Document.file_hash == file_hash,
@@ -68,7 +67,7 @@ async def ingest_document(
         )
         raise DuplicateDocumentError(filename=filename, file_hash=file_hash)
 
-    # Step 3: Create initial document record
+    # Step 3: Create initial document record with 'processing' status
     doc = Document(
         id=uuid.uuid4(),
         tenant_id=tenant_id,
@@ -82,17 +81,17 @@ async def ingest_document(
     await db.refresh(doc)
 
     try:
-        # Step 4: PDF Text Extraction
-        pages = extract_pdf_pages(file_bytes)
+        # Step 4: Asynchronous PDF Text Extraction (catches corrupted/unreadable PDFs)
+        pages = await extract_pdf_pages_async(file_bytes)
         if not pages:
-            raise ValueError(f"No extractable text found in PDF document '{filename}'.")
+            raise EmptyDocumentError(f"No extractable text found in PDF document '{filename}'.")
 
         # Step 5: Token-aware chunking (512 tokens, 128 overlap)
-        chunks = chunk_extracted_pages(pages, max_tokens=512, overlap_tokens=128)
+        chunks = await chunk_extracted_pages_async(pages, max_tokens=512, overlap_tokens=128)
         if not chunks:
-            raise ValueError(f"Chunking yielded 0 segments for document '{filename}'.")
+            raise EmptyDocumentError(f"Chunking yielded 0 segments for document '{filename}'.")
 
-        # Step 6: Gemini Embeddings
+        # Step 6: Gemini Embeddings (with timeout and retry resilience)
         chunk_texts = [c.content for c in chunks]
         embeddings = await embedder.embed_chunks(chunk_texts, task_type="retrieval_document")
 
@@ -101,7 +100,7 @@ async def ingest_document(
                 f"Embedding count mismatch: expected {len(chunks)}, got {len(embeddings)}"
             )
 
-        # Step 7: Prepare ChunkRecords
+        # Step 7: Prepare ChunkRecords with tenant_id attached
         chunk_records = [
             ChunkRecord(
                 id=uuid.uuid4(),
@@ -138,9 +137,19 @@ async def ingest_document(
         )
         return doc
 
-    except Exception as exc:
+    except (CorruptedPDFError, EmptyDocumentError, EmbeddingTimeoutError, EmbeddingServiceError) as exc:
         logger.error(
             f"Document ingestion failed: {exc}",
+            extra={"tenant_id": str(tenant_id), "document_id": str(doc.id)},
+        )
+        doc.status = "failed"
+        await db.commit()
+        await db.refresh(doc)
+        raise
+
+    except Exception as exc:
+        logger.exception(
+            f"Unexpected failure during document ingestion: {exc}",
             extra={"tenant_id": str(tenant_id), "document_id": str(doc.id)},
         )
         doc.status = "failed"

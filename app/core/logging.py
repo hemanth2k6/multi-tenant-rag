@@ -1,4 +1,4 @@
-"""Structured JSON logger with tenant context propagation."""
+"""Structured JSON logger with tenant and request correlation context propagation."""
 
 from __future__ import annotations
 
@@ -9,8 +9,9 @@ from contextvars import ContextVar
 from datetime import UTC, datetime
 from typing import Any
 
-# Context variable to track current tenant_id across async request contexts
+# Context variables to track tenant_id and request_id across async request contexts
 tenant_id_context_var: ContextVar[str | None] = ContextVar("tenant_id", default=None)
+request_id_context_var: ContextVar[str | None] = ContextVar("request_id", default=None)
 
 
 class JSONFormatter(logging.Formatter):
@@ -19,6 +20,7 @@ class JSONFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         timestamp = datetime.now(UTC).isoformat()
         current_tenant = tenant_id_context_var.get()
+        current_request_id = request_id_context_var.get()
 
         log_data: dict[str, Any] = {
             "timestamp": timestamp,
@@ -31,6 +33,10 @@ class JSONFormatter(logging.Formatter):
         tenant_id = getattr(record, "tenant_id", current_tenant)
         if tenant_id:
             log_data["tenant_id"] = str(tenant_id)
+
+        request_id = getattr(record, "request_id", current_request_id)
+        if request_id:
+            log_data["request_id"] = str(request_id)
 
         if record.exc_info:
             log_data["exception"] = self.formatException(record.exc_info)
@@ -61,6 +67,7 @@ class JSONFormatter(logging.Formatter):
                 "thread",
                 "threadName",
                 "tenant_id",
+                "request_id",
             }:
                 try:
                     json.dumps(value)

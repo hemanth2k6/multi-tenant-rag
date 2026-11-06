@@ -1,4 +1,4 @@
-"""Document model representing uploaded PDFs scoped to a tenant."""
+"""Document model representing uploaded PDFs scoped strictly to a tenant (user)."""
 
 from __future__ import annotations
 
@@ -18,10 +18,12 @@ if TYPE_CHECKING:
 
 
 class Document(Base):
-    """Document uploaded by a tenant."""
+    """Document uploaded by a tenant with strict multi-tenant isolation."""
 
     __tablename__ = "documents"
-    __table_args__ = (UniqueConstraint("tenant_id", "file_hash", name="uq_tenant_file_hash"),)
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "file_hash", name="uq_tenant_file_hash"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -46,6 +48,7 @@ class Document(Base):
 
     # Relationships
     tenant: Mapped[Tenant] = relationship("Tenant", back_populates="documents")
+    user: Mapped[Tenant] = relationship("Tenant", back_populates="documents", viewonly=True)
     chunks: Mapped[list[Chunk]] = relationship(
         "Chunk",
         back_populates="document",

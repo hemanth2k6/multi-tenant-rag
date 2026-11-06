@@ -1,13 +1,14 @@
-"""FastAPI dependencies for tenant authentication and rate limiting."""
+"""FastAPI dependencies for tenant authentication, vector store injection, and rate limiting."""
 
 from __future__ import annotations
 
-from fastapi import Depends, HTTPException, Security, status
+from fastapi import Depends, HTTPException, Request, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.config import settings
 from app.core.logging import get_logger, tenant_id_context_var
 from app.core.redis import RedisClient, get_redis
 from app.core.security import hash_api_key
@@ -15,6 +16,9 @@ from app.db.models.api_key import ApiKey
 from app.db.models.tenant import Tenant
 from app.db.session import get_db
 from app.middleware.rate_limit import RateLimitExceeded, check_rate_limit
+from app.services.vector_store.base import VectorStore
+from app.services.vector_store.pgvector_client import PgVectorClient
+from app.services.vector_store.pinecone_client import PineconeClient
 
 logger = get_logger(__name__)
 
@@ -39,8 +43,11 @@ async def get_current_tenant(
 ) -> Tenant:
     """Resolve and authenticate a tenant solely from the Bearer API key.
 
-    Never accepts tenant identity from request body or query parameters.
-    Hashes the raw key with SHA-256 and queries the database.
+    Security Invariants:
+    1. Tenant identity is NEVER accepted from request body, headers, or query parameters.
+    2. The raw key is hashed using constant-time SHA-256 before database lookup.
+    3. Revoked keys are rejected immediately.
+    4. Current tenant_id is bound to ContextVar for structured log tracing.
     """
     if credentials is None or not credentials.credentials:
         raise HTTPException(
@@ -82,7 +89,13 @@ async def get_current_tenant(
     return tenant
 
 
+# Aliases for user-centric nomenclature
+get_current_user = get_current_tenant
+authenticate_api_key = get_current_tenant
+
+
 async def rate_limited_tenant(
+    request: Request,
     tenant: Tenant = Depends(get_current_tenant),
     redis: RedisClient = Depends(get_redis),
 ) -> Tenant:
@@ -91,9 +104,26 @@ async def rate_limited_tenant(
     Free plan: 10 requests / 60s
     Premium plan: 100 requests / 60s
     """
+    # Prevent duplicate rate-limit evaluation if already checked in middleware
+    if getattr(request.state, "rate_limit_checked", False):
+        return tenant
+
     try:
         await check_rate_limit(redis, str(tenant.id), tenant.plan)
+        request.state.rate_limit_checked = True
     except RateLimitExceeded as exc:
         raise RateLimitHTTPException(plan=exc.plan, limit=exc.limit) from exc
 
     return tenant
+
+
+async def get_vector_store(
+    db: AsyncSession = Depends(get_db),
+) -> VectorStore:
+    """Inject configured vector store backend (PgVector or Pinecone)."""
+    if settings.VECTOR_BACKEND == "pinecone" and settings.PINECONE_API_KEY:
+        return PineconeClient(
+            api_key=settings.PINECONE_API_KEY,
+            index_name=settings.PINECONE_INDEX_NAME,
+        )
+    return PgVectorClient(session=db)

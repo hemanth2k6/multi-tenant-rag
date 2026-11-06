@@ -1,4 +1,4 @@
-"""Tenant model for multi-tenant isolation."""
+"""Tenant (User) model for multi-tenant isolation."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 
 class Tenant(Base):
-    """Represents an isolated SaaS customer/organization."""
+    """Represents an isolated SaaS customer/organization (or User account)."""
 
     __tablename__ = "tenants"
 
@@ -52,3 +52,7 @@ class Tenant(Base):
         back_populates="tenant",
         cascade="all, delete-orphan",
     )
+
+
+# Alias User to Tenant for multi-tenant account semantics
+User = Tenant

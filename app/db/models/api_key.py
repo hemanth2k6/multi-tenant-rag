@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 
 class ApiKey(Base):
-    """API key associated with a specific tenant."""
+    """API key associated with a specific tenant (user)."""
 
     __tablename__ = "api_keys"
 
@@ -48,3 +48,4 @@ class ApiKey(Base):
 
     # Relationships
     tenant: Mapped[Tenant] = relationship("Tenant", back_populates="api_keys")
+    user: Mapped[Tenant] = relationship("Tenant", back_populates="api_keys", viewonly=True)

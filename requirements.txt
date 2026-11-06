@@ -1,37 +1,41 @@
-# Web
+# Web Framework & Server
 fastapi==0.115.0
 uvicorn[standard]==0.30.6
 python-multipart==0.0.9
 
-# Database
+# Database & Migrations
 sqlalchemy==2.0.36
 asyncpg==0.29.0
 alembic==1.13.3
 
-# Vector
+# Vector Store
 pgvector==0.3.2
 
-# Cache
+# Distributed Cache & Rate Limiting
 redis==5.1.1
 
-# AI / Embeddings
+# AI & LLM Providers
 google-generativeai==0.8.3
 
-# PDF + Chunking
+# Document Processing & Tokenization
+pypdf==5.1.0
 PyPDF2==3.0.1
 tiktoken==0.8.0
 
-# Validation
+# Resilience & Retries (Staff-grade exponential backoff for external APIs)
+tenacity==9.0.0
+
+# Configuration & Validation
 pydantic==2.9.2
 pydantic-settings==2.5.2
 
-# Dev / Test
+# Testing & Async HTTP
 pytest==8.3.3
 pytest-asyncio==0.24.0
 httpx==0.27.2
 anyio==4.6.0
 
-# Lint / Type
+# Code Quality & Static Typing
 ruff==0.7.0
 black==24.10.0
 mypy==1.11.2

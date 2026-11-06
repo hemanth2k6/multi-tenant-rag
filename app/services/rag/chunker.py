@@ -1,11 +1,13 @@
-"""Token-aware text chunking using tiktoken."""
+"""Token-aware text chunking using tiktoken with overlap and thread offloading."""
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 
 import tiktoken
 
+from app.core.exceptions import EmptyDocumentError
 from app.services.rag.extractor import ExtractedPage
 
 
@@ -37,6 +39,9 @@ def chunk_extracted_pages(
     Returns:
         List of TextChunk instances with page and character boundaries.
     """
+    if not pages:
+        raise EmptyDocumentError("No pages provided for chunking.")
+
     enc = tiktoken.get_encoding(encoding_name)
     chunks: list[TextChunk] = []
     chunk_index = 0
@@ -89,4 +94,23 @@ def chunk_extracted_pages(
 
             start_token_idx += step_tokens
 
+    if not chunks:
+        raise EmptyDocumentError("Chunking resulted in 0 valid segments.")
+
     return chunks
+
+
+async def chunk_extracted_pages_async(
+    pages: list[ExtractedPage],
+    max_tokens: int = 512,
+    overlap_tokens: int = 128,
+    encoding_name: str = "cl100k_base",
+) -> list[TextChunk]:
+    """Asynchronously offload token chunking to a worker thread."""
+    return await asyncio.to_thread(
+        chunk_extracted_pages,
+        pages=pages,
+        max_tokens=max_tokens,
+        overlap_tokens=overlap_tokens,
+        encoding_name=encoding_name,
+    )

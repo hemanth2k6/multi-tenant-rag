@@ -4,23 +4,27 @@ services:
     container_name: rag_postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: rag_user
-      POSTGRES_PASSWORD: rag_pass
-      POSTGRES_DB: ragdb
+      POSTGRES_USER: ${POSTGRES_USER:-rag_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rag_pass}
+      POSTGRES_DB: ${POSTGRES_DB:-ragdb}
     ports:
       - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U rag_user -d ragdb"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-rag_user} -d ${POSTGRES_DB:-ragdb}"]
       interval: 5s
       timeout: 5s
       retries: 5
+      start_period: 5s
+    networks:
+      - rag_network
 
   redis:
     image: redis:7-alpine
     container_name: rag_redis
     restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1", "--loglevel", "notice"]
     ports:
       - "6380:6379"
     volumes:
@@ -30,6 +34,9 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+      start_period: 5s
+    networks:
+      - rag_network
 
   api:
     build:
@@ -42,13 +49,16 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql+asyncpg://rag_user:rag_pass@postgres:5432/ragdb
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-rag_user}:${POSTGRES_PASSWORD:-rag_pass}@postgres:5432/${POSTGRES_DB:-ragdb}
       REDIS_URL: redis://redis:6379/0
-      SECRET_KEY: change-me-in-production
-      EMBEDDING_DIM: 768
-      VECTOR_BACKEND: pgvector
-      DEBUG: "false"
-      LOG_LEVEL: INFO
+      SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_EMBEDDING_MODEL: ${GEMINI_EMBEDDING_MODEL:-text-embedding-004}
+      GEMINI_CHAT_MODEL: ${GEMINI_CHAT_MODEL:-gemini-2.0-flash}
+      EMBEDDING_DIM: ${EMBEDDING_DIM:-768}
+      VECTOR_BACKEND: ${VECTOR_BACKEND:-pgvector}
+      DEBUG: ${DEBUG:-false}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
     depends_on:
       postgres:
         condition: service_healthy
@@ -56,9 +66,16 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health/ready"]
-      interval: 5s
+      interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 15s
+    networks:
+      - rag_network
+
+networks:
+  rag_network:
+    driver: bridge
 
 volumes:
   pgdata:

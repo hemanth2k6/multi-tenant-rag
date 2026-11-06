@@ -1,4 +1,4 @@
-"""Document management API endpoints."""
+"""Document management API endpoints with multi-tenant isolation and robust error handling."""
 
 from __future__ import annotations
 
@@ -6,7 +6,14 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.dependencies import rate_limited_tenant
+from app.core.dependencies import get_vector_store, rate_limited_tenant
+from app.core.exceptions import (
+    CorruptedPDFError,
+    DuplicateDocumentError,
+    EmbeddingServiceError,
+    EmbeddingTimeoutError,
+    EmptyDocumentError,
+)
 from app.db.models.document import Document
 from app.db.models.tenant import Tenant
 from app.db.session import get_db
@@ -15,8 +22,8 @@ from app.schemas.document import (
     DocumentListResponse,
     DocumentUploadResponse,
 )
-from app.services.rag.ingestion import DuplicateDocumentError, ingest_document
-from app.services.vector_store.pgvector_client import PgVectorClient
+from app.services.rag.ingestion import ingest_document
+from app.services.vector_store.base import VectorStore
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -31,8 +38,17 @@ async def upload_document(
     file: UploadFile = File(..., description="PDF document to ingest"),
     tenant: Tenant = Depends(rate_limited_tenant),
     db: AsyncSession = Depends(get_db),
+    vector_store: VectorStore = Depends(get_vector_store),
 ) -> DocumentUploadResponse:
-    """Ingest a PDF file into the tenant's isolated vector knowledge base."""
+    """Ingest a PDF file into the authenticated tenant's isolated vector knowledge base.
+
+    Strictly enforces:
+    - PDF extension verification.
+    - Tenant-scoped deduplication (HTTP 409).
+    - Corrupted or unreadable PDF detection (HTTP 422).
+    - Embedding provider timeouts (HTTP 504) and provider failures (HTTP 502).
+    - Tenant isolation on all database and vector store operations.
+    """
     filename = file.filename or "document.pdf"
     if not filename.lower().endswith(".pdf"):
         raise HTTPException(
@@ -47,8 +63,6 @@ async def upload_document(
             detail="Uploaded file is empty.",
         )
 
-    vector_store = PgVectorClient(db)
-
     try:
         doc = await ingest_document(
             tenant_id=tenant.id,
@@ -61,6 +75,21 @@ async def upload_document(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Duplicate document: {exc}",
+        ) from exc
+    except (CorruptedPDFError, EmptyDocumentError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Invalid document: {exc}",
+        ) from exc
+    except EmbeddingTimeoutError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail=f"Embedding provider timed out: {exc}",
+        ) from exc
+    except EmbeddingServiceError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Embedding provider error: {exc}",
         ) from exc
     except ValueError as exc:
         raise HTTPException(
@@ -85,9 +114,11 @@ async def list_documents(
     tenant: Tenant = Depends(rate_limited_tenant),
     db: AsyncSession = Depends(get_db),
 ) -> DocumentListResponse:
-    """Retrieve all documents owned by the authenticated tenant."""
+    """Retrieve all documents owned strictly by the authenticated tenant."""
     stmt = (
-        select(Document).where(Document.tenant_id == tenant.id).order_by(Document.created_at.desc())
+        select(Document)
+        .where(Document.tenant_id == tenant.id)
+        .order_by(Document.created_at.desc())
     )
     result = await db.execute(stmt)
     documents = result.scalars().all()

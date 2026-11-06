@@ -1,4 +1,4 @@
-"""Main FastAPI application entry point with lifespan and exception handlers."""
+"""Main FastAPI application entry point with lifespan, middlewares, and exception handlers."""
 
 from __future__ import annotations
 
@@ -11,10 +11,19 @@ from fastapi.responses import JSONResponse
 from app.api.v1 import api_v1_router, health_router
 from app.core.config import settings
 from app.core.dependencies import RateLimitHTTPException
-from app.core.logging import get_logger
+from app.core.exceptions import (
+    AppException,
+    CorruptedPDFError,
+    DuplicateDocumentError,
+    EmbeddingServiceError,
+    EmbeddingTimeoutError,
+    EmptyDocumentError,
+)
+from app.core.logging import get_logger, setup_logging
 from app.core.redis import close_redis, get_redis_client
 from app.db.session import engine
-from app.middleware.rate_limit import RateLimitExceeded
+from app.middleware.correlation import CorrelationIdMiddleware
+from app.middleware.rate_limit import RateLimitExceeded, RateLimitMiddleware
 
 logger = get_logger(__name__)
 
@@ -22,6 +31,7 @@ logger = get_logger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifecycle manager."""
+    setup_logging(settings.LOG_LEVEL)
     env_name = "production" if not settings.DEBUG else "debug"
     logger.info("Starting Multi-Tenant RAG API", extra={"environment": env_name})
 
@@ -46,8 +56,8 @@ def create_application() -> FastAPI:
     application = FastAPI(
         title="Multi-Tenant RAG API",
         description=(
-            "Isolated multi-tenant Retrieval-Augmented Generation API "
-            "powered by pgvector and Gemini."
+            "Production-ready, isolated multi-tenant Retrieval-Augmented Generation API "
+            "powered by pgvector and Gemini with distributed rate limiting."
         ),
         version="0.1.0",
         docs_url="/docs",
@@ -55,7 +65,11 @@ def create_application() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # Register custom exception handlers for rate limiting to match contract
+    # 1. Mount Middlewares
+    application.add_middleware(CorrelationIdMiddleware)
+    application.add_middleware(RateLimitMiddleware)
+
+    # 2. Register Rate Limit Exception Handlers
     @application.exception_handler(RateLimitHTTPException)
     async def rate_limit_http_handler(
         request: Request,
@@ -68,6 +82,7 @@ def create_application() -> FastAPI:
                 "plan": exc.plan,
                 "limit": exc.limit,
             },
+            headers={"Retry-After": "60"},
         )
 
     @application.exception_handler(RateLimitExceeded)
@@ -82,9 +97,53 @@ def create_application() -> FastAPI:
                 "plan": exc.plan,
                 "limit": exc.limit,
             },
+            headers={"Retry-After": "60"},
         )
 
-    # Mount routers
+    # 3. Register Domain Exception Handlers
+    @application.exception_handler(DuplicateDocumentError)
+    async def duplicate_doc_handler(request: Request, exc: DuplicateDocumentError) -> JSONResponse:
+        return JSONResponse(
+            status_code=409,
+            content={"error": "duplicate_document", "detail": exc.message},
+        )
+
+    @application.exception_handler(CorruptedPDFError)
+    async def corrupted_pdf_handler(request: Request, exc: CorruptedPDFError) -> JSONResponse:
+        return JSONResponse(
+            status_code=422,
+            content={"error": "corrupted_pdf", "detail": exc.message},
+        )
+
+    @application.exception_handler(EmptyDocumentError)
+    async def empty_doc_handler(request: Request, exc: EmptyDocumentError) -> JSONResponse:
+        return JSONResponse(
+            status_code=422,
+            content={"error": "empty_document", "detail": exc.message},
+        )
+
+    @application.exception_handler(EmbeddingTimeoutError)
+    async def embedding_timeout_handler(request: Request, exc: EmbeddingTimeoutError) -> JSONResponse:
+        return JSONResponse(
+            status_code=504,
+            content={"error": "embedding_timeout", "detail": exc.message},
+        )
+
+    @application.exception_handler(EmbeddingServiceError)
+    async def embedding_service_handler(request: Request, exc: EmbeddingServiceError) -> JSONResponse:
+        return JSONResponse(
+            status_code=502,
+            content={"error": "embedding_service_error", "detail": exc.message},
+        )
+
+    @application.exception_handler(AppException)
+    async def app_exception_handler(request: Request, exc: AppException) -> JSONResponse:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "bad_request", "detail": exc.message},
+        )
+
+    # 4. Mount API Routers
     application.include_router(health_router)
     application.include_router(api_v1_router)
 

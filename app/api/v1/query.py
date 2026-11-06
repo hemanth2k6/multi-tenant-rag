@@ -1,16 +1,14 @@
-"""RAG query endpoint."""
+"""RAG query endpoint with tenant-scoped vector retrieval and LLM synthesis."""
 
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, status
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.dependencies import rate_limited_tenant
+from app.core.dependencies import get_vector_store, rate_limited_tenant
 from app.db.models.tenant import Tenant
-from app.db.session import get_db
 from app.schemas.query import QueryRequest, QueryResponse, SourceChunk
 from app.services.rag.retriever import retrieve_and_answer
-from app.services.vector_store.pgvector_client import PgVectorClient
+from app.services.vector_store.base import VectorStore
 
 router = APIRouter(prefix="/query", tags=["query"])
 
@@ -24,11 +22,16 @@ router = APIRouter(prefix="/query", tags=["query"])
 async def query_knowledge_base(
     request: QueryRequest,
     tenant: Tenant = Depends(rate_limited_tenant),
-    db: AsyncSession = Depends(get_db),
+    vector_store: VectorStore = Depends(get_vector_store),
 ) -> QueryResponse:
-    """Execute semantic vector search against tenant documents and synthesize an answer."""
-    vector_store = PgVectorClient(db)
+    """Execute semantic vector search against tenant documents and synthesize an answer.
 
+    Enforces:
+    - Tenant resolution solely from verified Bearer API key.
+    - Tier-based sliding-window rate limiting.
+    - Scoped vector search (WHERE tenant_id = :tid).
+    - Defense-in-depth memory verification dropping any foreign chunks.
+    """
     answer, sources = await retrieve_and_answer(
         tenant_id=tenant.id,
         question=request.question,
